@@ -342,31 +342,52 @@ function setSheetStatus(msg, type){
 }
 
 function parseSheetCsv(csv){
-  const lines = csv.trim().split('\n').map(l=>l.split(',').map(c=>c.replace(/^"|"$/g,'').trim()));
+  // Handle both \r\n and \n line endings
+  const lines = csv.trim().split(/\r?\n/).map(l=>{
+    // Handle quoted CSV fields properly
+    const fields = [];
+    let cur = '', inQ = false;
+    for(let i=0;i<l.length;i++){
+      if(l[i]==='"'){ inQ=!inQ; }
+      else if(l[i]===','&&!inQ){ fields.push(cur.trim()); cur=''; }
+      else { cur+=l[i]; }
+    }
+    fields.push(cur.trim());
+    return fields;
+  });
   if(lines.length < 2) throw new Error('Planilha vazia ou sem dados');
   
-  const header = lines[0].map(h=>h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
+  const header = lines[0].map(h=>h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''));
   const iDupla   = header.findIndex(h=>h.includes('dupla'));
-  const iSeg     = header.findIndex(h=>h.includes('seg') || h.includes('segment'));
+  const iSeg     = header.findIndex(h=>h.includes('seg'));
   const iMeta    = header.findIndex(h=>h.includes('meta'));
   const iReal    = header.findIndex(h=>h.includes('real'));
-  const iDev     = header.findIndex(h=>h.includes('dev') || h.includes('devolucao') || h.includes('devol'));
+  const iDev     = header.findIndex(h=>h.includes('dev'));
   const iMargem  = header.findIndex(h=>h.includes('margem'));
   
   if(iDupla<0 || iSeg<0 || iMeta<0 || iReal<0)
-    throw new Error('Colunas não encontradas. Verifique se a planilha tem: dupla, segmento, meta, real');
+    throw new Error(`Colunas não encontradas. Cabeçalho lido: ${lines[0].join(' | ')}`);
   
   const newData = {};
   lines.slice(1).forEach(row => {
     if(!row[iDupla] || !row[iSeg]) return;
-    const d = row[iDupla].trim();
+    // Normalize dupla: "JONAS / CAMILA" → "Jonas x Camila" matching dk() format
+    let d = row[iDupla].trim();
+    // Keep original format — just trim spaces around separators
+    d = d.replace(/\s*\/\s*/g, ' / ').replace(/\s*x\s*/gi, ' x ');
     const s = row[iSeg].trim();
+    // Parse value — remove R$, dots, spaces
+    const parseVal = v => {
+      if(!v) return 0;
+      const clean = String(v).replace(/R\$\s*/g,'').replace(/\./g,'').replace(',','.').trim();
+      return parseFloat(clean) || 0;
+    };
     if(!newData[d]) newData[d] = {};
     newData[d][s] = {
-      meta:   parseFloat(row[iMeta])   || 0,
-      real:   parseFloat(row[iReal])   || 0,
-      dev:    iDev>=0   ? (parseFloat(row[iDev])    || 0) : 0,
-      margem: iMargem>=0? (parseFloat(row[iMargem]) || 0) : 0,
+      meta:   parseVal(row[iMeta]),
+      real:   parseVal(row[iReal]),
+      dev:    iDev>=0   ? parseVal(row[iDev])    : 0,
+      margem: iMargem>=0? parseVal(row[iMargem]) : 0,
     };
   });
   return newData;
@@ -377,26 +398,62 @@ async function loadFromSheet(silent){
   if(!id){ if(!silent) alert('⚠️ Cole o ID ou URL da planilha no campo "Google Sheets" acima!'); return; }
   
   setSheetStatus('⏳ Carregando…', 'loading');
+  
+  // Build the published CSV URL - try with the ID directly
+  let csvUrl;
+  // If it's already a full pub URL, use it directly
+  if(id.includes('pub?') || id.includes('output=csv')){
+    csvUrl = id;
+  } else {
+    // Extract ID if full URL was pasted
+    const match = id.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    const cleanId = match ? match[1] : id.trim();
+    SHEET_ID = cleanId;
+    localStorage.setItem('mb_sheet_id', cleanId);
+    csvUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:csv&sheet=Dashboard`;
+  }
+
+  // Try multiple proxies in order
+  const proxies = [
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    url => `https://thingproxy.freeboard.io/fetch/${url}`,
+  ];
+
+  let csv = null;
+  let lastErr = '';
+  for(const proxy of proxies){
+    try {
+      const resp = await fetch(proxy(csvUrl), {cache: 'no-store'});
+      if(!resp.ok) { lastErr = 'HTTP ' + resp.status; continue; }
+      const text = await resp.text();
+      if(text.includes('DOCTYPE') || text.includes('<html') || text.length < 10){ lastErr = 'Resposta inválida'; continue; }
+      csv = text;
+      break;
+    } catch(e){ lastErr = e.message; }
+  }
+
+  if(!csv){
+    setSheetStatus('❌ ' + lastErr, 'err');
+    if(!silent) alert('❌ Não foi possível carregar a planilha.\n\nVerifique se:\n1. A planilha está publicada na web como CSV\n2. O ID/link está correto\n\nErro: ' + lastErr);
+    return;
+  }
+
   try {
-    const url = getSheetCsvUrl(id);
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-    const resp = await fetch(proxyUrl);
-    if(!resp.ok) throw new Error('Erro HTTP ' + resp.status);
-    const csv = await resp.text();
-    
-    if(csv.includes('DOCTYPE') || csv.includes('<html'))
-      throw new Error('Planilha não está publicada como CSV. Siga as instruções em "Como conectar".');
-    
     const parsed = parseSheetCsv(csv);
     
-    // Merge: keep structure from EQUIPES, update values from sheet
+    // Helper to normalize dupla name for comparison
+    const normDupla = k => k.toUpperCase().trim().replace(/\s*[\/x]\s*/gi,' | ');
+    
     EQUIPES.forEach(eq => eq.duplas.forEach(([v1,v2]) => {
       const k = dk(v1,v2);
       if(!DATA[k]) DATA[k] = {};
       eq.segments.forEach(seg => {
         if(!DATA[k][seg]) DATA[k][seg] = {meta:0,real:0,dev:0,margem:0};
-        if(parsed[k] && parsed[k][seg]) {
-          DATA[k][seg] = { ...DATA[k][seg], ...parsed[k][seg] };
+        // Find matching key ignoring / vs x and case
+        const matchKey = Object.keys(parsed).find(pk => normDupla(pk) === normDupla(k));
+        if(matchKey && parsed[matchKey][seg]) {
+          DATA[k][seg] = { ...DATA[k][seg], ...parsed[matchKey][seg] };
         }
       });
     }));
@@ -410,7 +467,7 @@ async function loadFromSheet(silent){
     if(!silent) startAutoRefresh();
   } catch(err) {
     setSheetStatus('❌ ' + err.message, 'err');
-    if(!silent) console.error('Sheet load error:', err);
+    if(!silent) alert('❌ Erro ao processar planilha:\n' + err.message);
   }
 }
 
