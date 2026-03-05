@@ -376,11 +376,17 @@ function parseSheetCsv(csv){
     // Keep original format — just trim spaces around separators
     d = d.replace(/\s*\/\s*/g, ' / ').replace(/\s*x\s*/gi, ' x ');
     const s = row[iSeg].trim();
-    // Parse value — remove R$, dots, spaces
+    // Parse value — remove R$, dots (thousands), convert comma to dot, treat - as 0
     const parseVal = v => {
       if(!v) return 0;
-      const clean = String(v).replace(/R\$\s*/g,'').replace(/\./g,'').replace(',','.').trim();
-      return parseFloat(clean) || 0;
+      const clean = String(v)
+        .replace(/R\$\s*/g,'')   // remove R$
+        .replace(/\s/g,'')        // remove spaces
+        .trim();
+      if(clean === '-' || clean === '' || clean === '0') return 0;
+      // Brazilian format: 1.234.567,89 → remove dots, replace comma with dot
+      const normalized = clean.replace(/\./g,'').replace(',','.');
+      return parseFloat(normalized) || 0;
     };
     if(!newData[d]) newData[d] = {};
     newData[d][s] = {
@@ -452,8 +458,13 @@ async function loadFromSheet(silent){
         if(!DATA[k][seg]) DATA[k][seg] = {meta:0,real:0,dev:0,margem:0};
         // Find matching key ignoring / vs x and case
         const matchKey = Object.keys(parsed).find(pk => normDupla(pk) === normDupla(k));
-        if(matchKey && parsed[matchKey][seg]) {
-          DATA[k][seg] = { ...DATA[k][seg], ...parsed[matchKey][seg] };
+        const normSeg = s => s.toUpperCase().trim().replace(/\.$/,'');
+        if(matchKey && parsed[matchKey]){
+          // Find matching segment ignoring case and trailing dot
+          const matchSeg = Object.keys(parsed[matchKey]).find(ps => normSeg(ps) === normSeg(seg));
+          if(matchSeg) {
+            DATA[k][seg] = { ...DATA[k][seg], ...parsed[matchKey][matchSeg] };
+          }
         }
       });
     }));
