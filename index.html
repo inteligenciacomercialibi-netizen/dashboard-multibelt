@@ -376,16 +376,30 @@ function parseSheetCsv(csv){
     // Keep original format — just trim spaces around separators
     d = d.replace(/\s*\/\s*/g, ' / ').replace(/\s*x\s*/gi, ' x ');
     const s = row[iSeg].trim().replace(/,+$/, '').trim(); // remove trailing commas
-    // Parse value — remove R$, dots (thousands), convert comma to dot, treat - as 0
+    // Parse value — handle R$ format and plain numbers
     const parseVal = v => {
       if(!v) return 0;
-      const clean = String(v)
-        .replace(/R\$\s*/g,'')   // remove R$
-        .replace(/\s/g,'')        // remove spaces
-        .trim();
+      let clean = String(v).trim();
+      // Remove R$ and currency symbols
+      clean = clean.replace(/R\$\s*/g,'').replace(/\s/g,'').trim();
+      // Handle dash as zero
       if(clean === '-' || clean === '' || clean === '0') return 0;
-      // Brazilian format: 1.234.567,89 → remove dots, replace comma with dot
-      const normalized = clean.replace(/\./g,'').replace(',','.');
+      // Count dots and commas to determine format
+      const dots = (clean.match(/\./g)||[]).length;
+      const commas = (clean.match(/,/g)||[]).length;
+      let normalized;
+      if(dots > 1 || (dots >= 1 && commas === 1 && clean.indexOf('.') < clean.indexOf(','))){
+        // Brazilian: 1.000.000,00 → remove dots, replace comma
+        normalized = clean.replace(/\./g,'').replace(',','.');
+      } else if(commas > 1 || (commas >= 1 && dots === 1 && clean.indexOf(',') < clean.indexOf('.'))){
+        // 1,000,000.00 format
+        normalized = clean.replace(/,/g,'');
+      } else if(commas === 1 && dots === 0){
+        // 1000000,00 → replace comma
+        normalized = clean.replace(',','.');
+      } else {
+        normalized = clean.replace(/,/g,'');
+      }
       return parseFloat(normalized) || 0;
     };
     if(!newData[d]) newData[d] = {};
