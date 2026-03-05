@@ -375,7 +375,7 @@ function parseSheetCsv(csv){
     let d = row[iDupla].trim();
     // Keep original format — just trim spaces around separators
     d = d.replace(/\s*\/\s*/g, ' / ').replace(/\s*x\s*/gi, ' x ');
-    const s = row[iSeg].trim();
+    const s = row[iSeg].trim().replace(/,+$/, '').trim(); // remove trailing commas
     // Parse value — remove R$, dots (thousands), convert comma to dot, treat - as 0
     const parseVal = v => {
       if(!v) return 0;
