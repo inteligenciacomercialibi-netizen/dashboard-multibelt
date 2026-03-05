@@ -750,16 +750,30 @@ function renderPanel(){
 
 
 // ── SHARE & READONLY ────────────────────────────────────────────────────
-const IS_READONLY = !!window.__PRELOADED_DATA__;
+const IS_READONLY = !!window.__PRELOADED_DATA__ || new URLSearchParams(window.location.search).get('view') === 'readonly';
 
 function initReadonly(){
+  if(!IS_READONLY) return;
+
+  // Hide entire share/edit bar and show readonly badge
+  const bar = document.getElementById('shareBar');
+  if(bar){
+    // Hide all edit buttons, keep only status badge and sheet loader (read-only can still auto-refresh)
+    bar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex:1;flex-wrap:wrap;">
+        <span class="share-btn readonly" style="display:inline-flex;">👁️ MODO SOMENTE LEITURA — Dados atualizados automaticamente via Google Sheets</span>
+        <span id="sheetStatusBadge" style="font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;white-space:nowrap;display:none"></span>
+      </div>`;
+  }
+
   if(window.__PRELOADED_DATA__){
     DATA = window.__PRELOADED_DATA__;
-    document.getElementById('shareBtnEl').style.display='none';
-    document.getElementById('mgrBtnEl').style.display='none';
-    document.getElementById('readonlyBadge').style.display='inline-flex';
-    return;
   }
+
+  // Remove "Dados" tab so readonly users can't access the edit panel
+  const dadosTabIndex = TABS.findIndex(t=>t.id==='dados');
+  if(dadosTabIndex>=0) TABS.splice(dadosTabIndex,1);
+  if(activeTab==='dados') activeTab='geral';
 }
 
 function openShareModal(){
@@ -805,21 +819,12 @@ buildNav();
 renderPanel();
 updateNavLabel();
 
-// Auto-load from sheet if ID was previously saved
-if(SHEET_ID && !IS_READONLY){
+// Auto-load from sheet if ID was previously saved, or in readonly mode
+if(SHEET_ID && !window.__PRELOADED_DATA__){
   setTimeout(()=>{ loadFromSheet(false); startAutoRefresh(); }, 800);
 }
 // Hide "Dados" tab in readonly mode
-if(IS_READONLY){
-  const db=document.getElementById('shareBar');
-  // patch dadosHTML to show readonly message
-  window._origDadosHTML=dadosHTML;
-  dadosHTML=()=>`<div style="text-align:center;padding:60px 20px;color:#8892a4">
-    <div style="font-size:48px;margin-bottom:16px">👁️</div>
-    <div style="font-size:20px;font-weight:800;color:#1a1a2e;margin-bottom:8px">Modo Somente Leitura</div>
-    <div style="font-size:14px">Este dashboard foi compartilhado para visualização.<br>Para editar os dados, acesse o arquivo original.</div>
-  </div>`;
-}
+// readonly mode: dadosHTML already blocked via TABS splice in initReadonly
 if(localStorage.getItem("mb_nav_min")==="1"){const n=document.getElementById("mainNav");if(n)n.classList.add("minimized");}
 
 function toggleNav(){
