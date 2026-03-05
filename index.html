@@ -449,7 +449,10 @@ async function loadFromSheet(silent){
     const parsed = parseSheetCsv(csv);
     
     // Helper to normalize dupla name for comparison
-    const normDupla = k => k.toUpperCase().trim().replace(/\s*[\/x]\s*/gi,' | ');
+    const normDupla = k => k.toUpperCase().trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/\s*[\/x]\s*/gi,' | ')
+      .replace(/\s+/g,' ');
     
     EQUIPES.forEach(eq => eq.duplas.forEach(([v1,v2]) => {
       const k = dk(v1,v2);
@@ -458,7 +461,10 @@ async function loadFromSheet(silent){
         if(!DATA[k][seg]) DATA[k][seg] = {meta:0,real:0,dev:0,margem:0};
         // Find matching key ignoring / vs x and case
         const matchKey = Object.keys(parsed).find(pk => normDupla(pk) === normDupla(k));
-        const normSeg = s => s.toUpperCase().trim().replace(/\.$/,'');
+        const normSeg = s => s.toUpperCase().trim()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g,'')  // remove accents
+          .replace(/[.\s]+$/,'')   // remove trailing dots and spaces
+          .replace(/\s+/g,' ');    // normalize internal spaces
         if(matchKey && parsed[matchKey]){
           // Find matching segment ignoring case and trailing dot
           const matchSeg = Object.keys(parsed[matchKey]).find(ps => normSeg(ps) === normSeg(seg));
