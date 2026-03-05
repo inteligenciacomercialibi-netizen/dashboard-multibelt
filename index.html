@@ -281,7 +281,7 @@ const EQUIPES = [
   {
     name:"Equipe Negócios", color:"#2563eb",
     duplas:[["Welliton","Adrielly"],["Clovis","Renata"],["Cesar","Keila"],["Ricardo","Gislaine"],["Luciano",""]],
-    segments:["BORRACHA","CORREIA EM V","IMPLEMENTOS FAB.","CANECAS","REVESTIMENTO MULTITUBO","MANTA LÍQUIDA","LONAS FAB","VEDAÇÕES FAB","ENFARDADEIRA","DRAPER FAB","CORRENTES FAB","MATO FAB"]
+    segments:["BORRACHA","CORREIA EM V","IMPLEMENTOS FAB.","CANECAS","REVESTIMENTO MULTITUBO","MANTA LÍQUIDA","LONAS FAB","VEDAÇÕES FAB","ENFARDADEIRA","DRAPER FAB","CORRENTES","MATO FAB"]
   },
   {
     name:"Equipe Agro", color:"#16a34a",
@@ -291,7 +291,7 @@ const EQUIPES = [
   {
     name:"Equipe Exportação", color:"#f97316",
     duplas:[["John","Vinicius"]],
-    segments:["DRAPER EXPORTAÇÃO","BORRACHA","PVC"]
+    segments:["DRAPER EXPO","BORRACHA","PVC"]
   },
 ];
 
@@ -441,7 +441,7 @@ async function loadFromSheet(silent){
 
   if(!csv){
     setSheetStatus('❌ ' + lastErr, 'err');
-    if(!silent) alert('❌ Não foi possível carregar a planilha.\n\nVerifique se:\n1. A planilha está publicada na web como CSV\n2. O ID/link está correto\n\nErro: ' + lastErr);
+    if(!silent) setSheetStatus('❌ Não foi possível carregar. Verifique se a planilha está publicada como CSV.', 'err');
     return;
   }
 
@@ -478,7 +478,6 @@ async function loadFromSheet(silent){
     if(!silent) startAutoRefresh();
   } catch(err) {
     setSheetStatus('❌ ' + err.message, 'err');
-    if(!silent) alert('❌ Erro ao processar planilha:\n' + err.message);
   }
 }
 
